@@ -69,5 +69,5 @@ Working and tested:
 - cancellation: no stale tokens, no empty bubble, abort on unmount
 - the input component (Stop, and Enter while streaming)
 
-CI runs typecheck, tests, and the production build. Pushes to `main` deploy the
+CI runs typecheck, tests, and the production build. Pushes to `master` deploy the
 demo to GitHub Pages.
