@@ -14,8 +14,8 @@ component. It pays off the first time you test the cancellation path.
 
 ## 2. The backend is an interface
 
-**Decision.** `ChatClient` has one method, `stream(prompt, signal)`, returning
-an async iterable of tokens. The app ships a fake implementation; a real one
+**Decision.** `ChatClient` has one method, `stream(messages, signal)`, taking
+the conversation so far and returning an async iterable of tokens. The app ships a fake implementation; a real one
 would wrap an SSE endpoint.
 
 **Why.** The UI should not care how tokens arrive. The fake makes the app and
@@ -31,8 +31,9 @@ outcome: partial text stays, no error is shown.
 wipes the partial reply, the UI feels broken. Distinguishing an abort from a
 real failure (by the error's `name`) is the detail that makes it feel right.
 
-**Cost.** The client implementation has to honour the signal. That contract is
-documented on the interface and exercised by the fake.
+**Cost.** The client implementation has to honour the signal. `useChat` does not
+trust it to: it also stops appending as soon as the signal is aborted, because a
+client that checks only before a delay would otherwise yield one more token.
 
 ## 4. The error path cleans up after itself
 
@@ -48,5 +49,5 @@ failure while cleaning up an immediate one.
 
 - A real SSE `ChatClient` against a backend (the interface is ready for it).
 - Retry on transient failures, with the partial response preserved.
-- Persistence of conversation history.
+- Persistence of conversation history across reloads.
 - Markdown rendering of assistant messages.
