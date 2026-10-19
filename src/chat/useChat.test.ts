@@ -1,5 +1,7 @@
+import { effectScope } from "vue";
 import { describe, expect, it } from "vitest";
 import { createFakeClient } from "./fakeClient";
+import type { ChatClient, ChatMessage } from "./types";
 import { useChat } from "./useChat";
 
 describe("useChat", () => {
@@ -46,6 +48,70 @@ describe("useChat", () => {
     await pending;
 
     expect(chat.isStreaming.value).toBe(false);
+    expect(chat.status.value).toBe("idle");
     expect(chat.error.value).toBeNull();
+  });
+
+  it("keeps the partial reply on cancel and appends nothing after it", async () => {
+    const chat = useChat(createFakeClient({ reply: "one two three four five", delayMs: 5 }));
+    const pending = chat.send("go");
+    await new Promise((resolve) => setTimeout(resolve, 12));
+    chat.cancel();
+    const atCancel = chat.messages.value[1]?.content;
+    await pending;
+
+    expect(atCancel).toBeTruthy();
+    expect(chat.messages.value[1]?.content).toBe(atCancel);
+  });
+
+  it("drops the empty assistant bubble when cancelled before the first token", async () => {
+    const chat = useChat(createFakeClient({ reply: "one two", delayMs: 5 }));
+    const pending = chat.send("go");
+    chat.cancel();
+    await pending;
+
+    expect(chat.messages.value).toEqual([{ role: "user", content: "go" }]);
+  });
+
+  it("sends the whole conversation, not just the latest prompt", async () => {
+    const seen: ChatMessage[][] = [];
+    const client: ChatClient = {
+      async *stream(messages) {
+        seen.push([...messages]);
+        yield "ok";
+      },
+    };
+    const chat = useChat(client);
+    await chat.send("first");
+    await chat.send("second");
+
+    expect(seen[1]).toEqual([
+      { role: "user", content: "first" },
+      { role: "assistant", content: "ok" },
+      { role: "user", content: "second" },
+    ]);
+  });
+
+  it("reports a thrown non-Error value instead of crashing", async () => {
+    const client: ChatClient = {
+      async *stream() {
+        throw "backend said no";
+      },
+    };
+    const chat = useChat(client);
+    await chat.send("hi");
+
+    expect(chat.status.value).toBe("error");
+    expect(chat.error.value).toBe("backend said no");
+  });
+
+  it("aborts the stream when its scope is disposed", async () => {
+    const scope = effectScope();
+    const chat = scope.run(() => useChat(createFakeClient({ reply: "a b c d e f", delayMs: 5 })))!;
+    const pending = chat.send("go");
+    scope.stop();
+    await pending;
+
+    expect(chat.isStreaming.value).toBe(false);
   });
 });

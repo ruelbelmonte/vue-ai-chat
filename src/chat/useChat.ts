@@ -1,17 +1,26 @@
-import { readonly, ref } from "vue";
-import type { ChatClient, ChatMessage } from "./types";
+import { computed, getCurrentScope, onScopeDispose, readonly, ref } from "vue";
+import type { ChatClient, ChatMessage, ChatStatus } from "./types";
+
+function isAbort(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
 
 /**
  * The chat state machine, independent of any component. Owns the message list,
- * the streaming flag, the error, and cancellation. Kept as a composable so it is
- * unit-tested with a fake client and no DOM. The component is just a view over
- * this.
+ * the status (idle, streaming, error), and cancellation. Kept as a composable so
+ * it is unit-tested with a fake client and no DOM. The component is just a view
+ * over this.
  */
 export function useChat(client: ChatClient) {
   const messages = ref<ChatMessage[]>([]);
-  const isStreaming = ref(false);
+  const status = ref<ChatStatus>("idle");
   const error = ref<string | null>(null);
+  const isStreaming = computed(() => status.value === "streaming");
   let controller: AbortController | null = null;
+
+  function dropEmptyReply(index: number): void {
+    if (messages.value[index]?.content === "") messages.value.splice(index, 1);
+  }
 
   async function send(text: string): Promise<void> {
     const trimmed = text.trim();
@@ -19,27 +28,31 @@ export function useChat(client: ChatClient) {
 
     error.value = null;
     messages.value.push({ role: "user", content: trimmed });
+    const history = messages.value.map((message) => ({ ...message }));
     messages.value.push({ role: "assistant", content: "" });
     const assistantIndex = messages.value.length - 1;
 
-    isStreaming.value = true;
+    status.value = "streaming";
     controller = new AbortController();
+    const { signal } = controller;
     try {
-      for await (const chunk of client.stream(trimmed, controller.signal)) {
+      for await (const chunk of client.stream(history, signal)) {
+        // A client may yield one more token after abort; it must not land.
+        if (signal.aborted) break;
         const assistant = messages.value[assistantIndex];
         if (assistant) assistant.content += chunk;
       }
+      status.value = "idle";
     } catch (err) {
-      if ((err as Error).name === "AbortError") {
-        // Cancelled by the user: keep whatever streamed, surface no error.
+      if (isAbort(err)) {
+        status.value = "idle";
       } else {
-        error.value = (err as Error).message || "something went wrong";
-        // Drop the empty assistant bubble if nothing arrived before failing.
-        const assistant = messages.value[assistantIndex];
-        if (assistant && assistant.content === "") messages.value.splice(assistantIndex, 1);
+        error.value = (err instanceof Error ? err.message : String(err)) || "something went wrong";
+        status.value = "error";
       }
     } finally {
-      isStreaming.value = false;
+      // Keep partial text on cancel or failure; drop the bubble if nothing arrived.
+      dropEmptyReply(assistantIndex);
       controller = null;
     }
   }
@@ -48,9 +61,12 @@ export function useChat(client: ChatClient) {
     controller?.abort();
   }
 
+  if (getCurrentScope()) onScopeDispose(cancel);
+
   return {
     messages: readonly(messages),
-    isStreaming: readonly(isStreaming),
+    status: readonly(status),
+    isStreaming,
     error: readonly(error),
     send,
     cancel,

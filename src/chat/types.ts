@@ -5,11 +5,13 @@ export interface ChatMessage {
   content: string;
 }
 
+export type ChatStatus = "idle" | "streaming" | "error";
+
 /**
- * The only thing the UI needs from a backend: stream a reply token by token,
- * cancellable via an AbortSignal. A real implementation would call an SSE
- * endpoint; the bundled fake lets the app and tests run with no backend.
+ * The only thing the UI needs from a backend: given the conversation so far,
+ * stream the next assistant reply token by token, cancellable via an AbortSignal.
+ * The bundled fake lets the app and tests run with no backend.
  */
 export interface ChatClient {
-  stream(prompt: string, signal: AbortSignal): AsyncIterable<string>;
+  stream(messages: readonly ChatMessage[], signal: AbortSignal): AsyncIterable<string>;
 }
