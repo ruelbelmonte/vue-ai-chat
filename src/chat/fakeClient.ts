@@ -1,4 +1,4 @@
-import type { ChatClient } from "./types";
+import type { ChatClient, ChatMessage } from "./types";
 
 export interface FakeClientOptions {
   /** Throw partway through, to exercise the error path. */
@@ -24,8 +24,12 @@ function abortError(): Error {
 export function createFakeClient(options: FakeClientOptions = {}): ChatClient {
   const { fail = false, delayMs = 18 } = options;
   return {
-    async *stream(prompt: string, signal: AbortSignal): AsyncIterable<string> {
-      const reply = options.reply ?? `You said: "${prompt}". This reply is streamed token by token.`;
+    async *stream(messages: readonly ChatMessage[], signal: AbortSignal): AsyncIterable<string> {
+      const prompt = messages.at(-1)?.content ?? "";
+      const turns = messages.filter((message) => message.role === "user").length;
+      const reply =
+        options.reply ??
+        `You said: "${prompt}" (turn ${turns}). This reply is streamed token by token.`;
       for (const word of reply.split(" ")) {
         if (signal.aborted) throw abortError();
         if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
