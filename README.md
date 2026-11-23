@@ -40,20 +40,34 @@ npm run dev       # the app, in demo mode on the fake client
 npm run build     # type-check (vue-tsc) + production build
 ```
 
-To connect a real backend, implement `ChatClient` (one method:
-`stream(messages, signal)` yielding tokens) and pass it to `useChat` instead of
-the fake client. Keep API keys on a server: the client should call your own
-backend, never a model provider directly from the browser.
+### With Claude behind it
+
+`server/` is a small Node server that streams Claude's reply to the browser as
+server-sent events. The API key stays on the server; the browser only ever calls
+`/api/chat`.
+
+```bash
+ANTHROPIC_API_KEY=... npm run server        # :8788 (PowerShell: $env:ANTHROPIC_API_KEY="..."; npm run server)
+VITE_CHAT_BACKEND=1 npm run dev             # the UI on the real client, /api proxied to :8788
+```
+
+| Variable | Default | |
+|---|---|---|
+| `CLAUDE_MODEL` | `claude-haiku-4-5` | |
+| `CHAT_IDLE_TIMEOUT_MS` | `15000` | Give up when Claude sends no text for this long, before the first word or mid-answer |
+| `ANTHROPIC_BASE_URL` | the API | Read by the SDK; point it at a fault-injection proxy to test failures |
+
+Every reply ends with a `done` or an `error` event. The client treats a stream
+that ends without either as a lost connection, so half an answer never looks
+complete. An answer Claude stopped at the token limit is reported as cut short.
 
 ## Limitations
 
-- **No real transport yet.** There is no SSE client, so the hard parts of one
-  are not here:
-  - events split across network chunks
-  - UTF-8 decoding at chunk boundaries (`TextDecoder` with `stream: true`)
-  - server-sent error events
 - **No retry, persistence, or markdown rendering.** Replies render as plain text,
-  which keeps them XSS-safe.
+  which keeps them XSS-safe. A failed or cut-short reply keeps its partial text
+  and asks the user to try again.
+- **The server is a demo.** No auth, rate limiting or per-user spend cap; don't
+  expose it publicly as it is.
 
 ## Design
 
