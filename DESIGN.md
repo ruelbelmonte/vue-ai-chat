@@ -45,9 +45,24 @@ message.
 Removing it only when nothing streamed keeps partial responses on a mid-stream
 failure while cleaning up an immediate one.
 
+## 5. A reply must say it finished
+
+**Decision.** The server ends every reply with a `done` or an `error` event, and
+the client throws when the stream ends without one. The server reports an answer
+that stopped at `max_tokens` as cut short, and gives up when Claude sends no
+text for `CHAT_IDLE_TIMEOUT_MS` (15 s), before the first word or mid-answer.
+
+**Why.** A fault-injection run with Claude behind a proxy showed two silent
+failures. An answer truncated at the token limit arrived as a well-formed stream
+and rendered as a complete reply, cut off mid-sentence. A call that hung or was
+slow to start left the cursor blinking with no limit, because nothing in the chain
+had a limit shorter than the SDK's 10-minute default. Both look fine to
+an HTTP check: the status is 200.
+
+**Cost.** A genuinely slow first token past 15 s now fails instead of arriving.
+
 ## Left as extension points
 
-- A real SSE `ChatClient` against a backend (the interface is ready for it).
 - Retry on transient failures, with the partial response preserved.
 - Persistence of conversation history across reloads.
 - Markdown rendering of assistant messages.
